@@ -1,0 +1,49 @@
+name: osman download + upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      episodes:
+        description: "episodes to download (comma-separated, e.g. 205,206,207)"
+        required: true
+        type: string
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install deps
+        run: |
+          pip install yt-dlp
+          sudo apt-get install -y ffmpeg
+          curl https://rclone.org/install.sh | sudo bash
+
+      - name: configure rclone
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+
+      - name: download episodes
+        run: |
+          python download_osman.py --episodes "${{ github.event.inputs.episodes }}"
+
+      - name: faststart + replace in-place
+        run: |
+          for f in osman_episodes/*.mp4; do
+            echo "faststarting $f..."
+            ffmpeg -i "$f" -c copy -movflags +faststart "${f%.mp4}_fs.mp4"
+            rm "$f"
+            mv "${f%.mp4}_fs.mp4" "$f"
+            echo "done: $f"
+          done
+
+      - name: upload to r2
+        run: |
+          rclone copy osman_episodes/ r2:osman/ --progress
+
+      - name: cleanup
+        run: rm -rf osman_episodes/
